@@ -14,19 +14,32 @@ struct ThrottleEvent: Identifiable {
 /// results are published on the main thread.
 @MainActor
 final class Monitor: ObservableObject {
-    @Published private(set) var system: SystemSample?
-    @Published private(set) var report: HealthReport = .ok
-    @Published private(set) var groups: [ProcessGroup] = []
-    /// CPU (% of one core) not attributable to readable processes: root daemons and the kernel.
-    @Published private(set) var unattributedCPU = 0.0
-    @Published private(set) var cpuHistory: [Double] = []
-    /// Memory load: 1 − the kernel's "available" fraction.
-    @Published private(set) var memHistory: [Double] = []
-    /// Swap traffic (in + out), bytes per second.
-    @Published private(set) var swapHistory: [Double] = []
-    @Published private(set) var latencyMs = 0.0
-    @Published private(set) var autoPaused: [ThrottledJob] = []
-    @Published private(set) var deprioritized = Set<ProcessKey>()
+    struct Snapshot {
+        var system: SystemSample?
+        var report: HealthReport = .ok
+        var groups: [ProcessGroup] = []
+        var unattributedCPU = 0.0
+        var cpuHistory: [Double] = []
+        var memHistory: [Double] = []
+        var swapHistory: [Double] = []
+        var latencyMs = 0.0
+        var autoPaused: [ThrottledJob] = []
+        var deprioritized = Set<ProcessKey>()
+    }
+
+    /// Publish a complete tick once, so views never render partially updated samples.
+    @Published private(set) var snapshot = Snapshot()
+    var system: SystemSample? { snapshot.system }
+    var report: HealthReport { snapshot.report }
+    var groups: [ProcessGroup] { snapshot.groups }
+    var unattributedCPU: Double { snapshot.unattributedCPU }
+    var cpuHistory: [Double] { snapshot.cpuHistory }
+    var memHistory: [Double] { snapshot.memHistory }
+    var swapHistory: [Double] { snapshot.swapHistory }
+    var latencyMs: Double { snapshot.latencyMs }
+    var autoPaused: [ThrottledJob] { snapshot.autoPaused }
+    var deprioritized: Set<ProcessKey> { snapshot.deprioritized }
+
     @Published private(set) var events: [ThrottleEvent] = []
 
     @Published var mode: ThrottleMode {
@@ -138,16 +151,18 @@ final class Monitor: ObservableObject {
 
         DispatchQueue.main.async {
             MainActor.assumeIsolated {
-                self.system = system
-                self.report = report
-                self.latencyMs = latency
-                self.autoPaused = paused
-                self.deprioritized = deprioritized
-                self.unattributedCPU = unattributed
-                if publishProcesses { self.groups = visibleGroups }
-                self.push(&self.cpuHistory, system.cpuTotal)
-                self.push(&self.memHistory, 1 - Double(system.memAvailablePercent) / 100)
-                self.push(&self.swapHistory, system.swapInRate + system.swapOutRate)
+                var next = self.snapshot
+                next.system = system
+                next.report = report
+                next.latencyMs = latency
+                next.autoPaused = paused
+                next.deprioritized = deprioritized
+                next.unattributedCPU = unattributed
+                if publishProcesses { next.groups = visibleGroups }
+                self.push(&next.cpuHistory, system.cpuTotal)
+                self.push(&next.memHistory, 1 - Double(system.memAvailablePercent) / 100)
+                self.push(&next.swapHistory, system.swapInRate + system.swapOutRate)
+                self.snapshot = next
                 for message in messages { self.log(message, auto: true) }
             }
         }

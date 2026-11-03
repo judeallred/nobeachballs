@@ -48,15 +48,17 @@ struct ProcessListView: View {
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(rows) { group in
-                        ProcessRow(monitor: monitor, group: group, depth: 0,
-                                   expandable: mode == .grouped && group.members.count > 1,
-                                   isExpanded: expanded.contains(group.id)) {
-                            if expanded.contains(group.id) { expanded.remove(group.id) } else { expanded.insert(group.id) }
-                        }
-                        if mode == .grouped, group.members.count > 1, expanded.contains(group.id) {
-                            ForEach(group.members) { member in
-                                ProcessRow(monitor: monitor, group: single(member, in: group), depth: 1,
-                                           expandable: false, isExpanded: false) {}
+                        VStack(spacing: 0) {
+                            ProcessRow(monitor: monitor, system: monitor.system, deprioritized: monitor.deprioritized, group: group, depth: 0,
+                                       expandable: mode == .grouped && group.members.count > 1,
+                                       isExpanded: expanded.contains(group.id)) {
+                                if expanded.contains(group.id) { expanded.remove(group.id) } else { expanded.insert(group.id) }
+                            }
+                            if mode == .grouped, group.members.count > 1, expanded.contains(group.id) {
+                                ForEach(group.members) { member in
+                                    ProcessRow(monitor: monitor, system: monitor.system, deprioritized: monitor.deprioritized, group: single(member, in: group), depth: 1,
+                                               expandable: false, isExpanded: false) {}
+                                }
                             }
                         }
                     }
@@ -112,7 +114,9 @@ struct ProcessListView: View {
 }
 
 struct ProcessRow: View {
-    @ObservedObject var monitor: Monitor
+    let monitor: Monitor
+    let system: SystemSample?
+    let deprioritized: Set<ProcessKey>
     let group: ProcessGroup
     let depth: Int
     let expandable: Bool
@@ -121,7 +125,7 @@ struct ProcessRow: View {
     @State private var hovering = false
 
     var body: some View {
-        let cores = Double(monitor.system?.coreCount ?? 1)
+        let cores = Double(system?.coreCount ?? 1)
         HStack(spacing: 6) {
             Group {
                 if expandable {
@@ -159,7 +163,7 @@ struct ProcessRow: View {
 
             Text(group.root.isAccessible ? ByteFormat.short(group.memory) : "—")
                 .frame(width: 62, alignment: .trailing)
-                .foregroundStyle(Theme.meter(Double(group.memory) / Double(max(monitor.system?.memTotal ?? 1, 1)) * 4))
+                .foregroundStyle(Theme.meter(Double(group.memory) / Double(max(system?.memTotal ?? 1, 1)) * 4))
             Text(group.root.isAccessible && group.diskRate > 1024 ? ByteFormat.short(group.diskRate) : "")
                 .frame(width: 62, alignment: .trailing)
                 .foregroundStyle(Theme.dim)
@@ -187,7 +191,7 @@ struct ProcessRow: View {
             Image(systemName: "pause.circle.fill").foregroundStyle(Theme.yellow).help("Paused")
         } else if group.anyStopped {
             Image(systemName: "pause.circle").foregroundStyle(Theme.yellow).help("Partly paused")
-        } else if group.members.contains(where: { monitor.deprioritized.contains($0.key) }) {
+        } else if group.members.contains(where: { deprioritized.contains($0.key) }) {
             Image(systemName: "tortoise.fill").foregroundStyle(Theme.accent).help("Deprioritized by auto-throttle")
         } else if group.isProtected, group.kind != .system {
             Image(systemName: "shield.fill").foregroundStyle(Theme.dim.opacity(0.6))

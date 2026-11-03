@@ -97,15 +97,23 @@ struct MeterBar: View {
     var height: CGFloat = 7
 
     var body: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                Capsule().fill(Color.white.opacity(0.08))
-                Capsule()
+        Capsule()
+            .fill(Color.white.opacity(0.08))
+            .overlay(alignment: .leading) {
+                MeterFill(fraction: fraction)
                     .fill(color ?? Theme.meter(fraction))
-                    .frame(width: geo.size.width * CGFloat(min(max(fraction, 0), 1)))
             }
-        }
         .frame(height: height)
+    }
+}
+
+/// Draw directly in the proposed bounds; no geometry feedback or extra layout pass.
+private struct MeterFill: Shape {
+    let fraction: Double
+
+    func path(in rect: CGRect) -> Path {
+        let width = rect.width * CGFloat(min(max(fraction, 0), 1))
+        return Capsule().path(in: CGRect(x: rect.minX, y: rect.minY, width: width, height: rect.height))
     }
 }
 

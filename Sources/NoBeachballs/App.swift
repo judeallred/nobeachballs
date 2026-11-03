@@ -102,6 +102,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuDelegate {
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
     private var cancellables: Set<AnyCancellable> = []
+    private var lastIconKey: String?
 
     init(monitor: Monitor) {
         self.monitor = monitor
@@ -120,12 +121,11 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuDelegate {
             button.imagePosition = .imageOnly
         }
 
-        monitor.$report
-            .combineLatest(monitor.$system, monitor.$autoPaused, monitor.$deprioritized)
-            .receive(on: RunLoop.main)
-            .sink { [weak self] report, system, paused, deprioritized in
-                self?.updateIcon(report: report, usage: Self.usage(system),
-                                 throttling: !paused.isEmpty || !deprioritized.isEmpty, pausedCount: paused.count)
+        monitor.$snapshot
+            .sink { [weak self] snapshot in
+                self?.updateIcon(report: snapshot.report, usage: Self.usage(snapshot.system),
+                                 throttling: !snapshot.autoPaused.isEmpty || !snapshot.deprioritized.isEmpty,
+                                 pausedCount: snapshot.autoPaused.count)
             }
             .store(in: &cancellables)
     }
@@ -150,7 +150,11 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuDelegate {
 
     private func updateIcon(report: HealthReport, usage: Double, throttling: Bool, pausedCount: Int) {
         guard let button = item.button else { return }
-        button.image = Self.icon(level: report.level, usage: usage, throttling: throttling)
+        let iconKey = "\(report.level):\(Self.gaugeSymbol(for: usage)):\(throttling)"
+        if iconKey != lastIconKey {
+            button.image = Self.icon(level: report.level, usage: usage, throttling: throttling)
+            lastIconKey = iconKey
+        }
 
         var tip = "No Beachballs — \(report.level.label)"
         tip += String(format: " (%.0f%% load)", usage * 100)
