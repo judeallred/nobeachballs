@@ -3,6 +3,7 @@ import SwiftUI
 
 struct MonitorView: View {
     @ObservedObject var monitor: Monitor
+    var listState = ProcessListState()
 
     var body: some View {
         VStack(spacing: 8) {
@@ -18,7 +19,7 @@ struct MonitorView: View {
             if !monitor.autoPaused.isEmpty || !monitor.events.isEmpty {
                 ThrottlePanel(monitor: monitor)
             }
-            ProcessListView(monitor: monitor)
+            ProcessListView(monitor: monitor, state: listState)
         }
         .padding(10)
         .frame(width: 940, height: 760)

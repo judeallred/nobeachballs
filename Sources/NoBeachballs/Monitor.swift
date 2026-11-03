@@ -60,7 +60,11 @@ final class Monitor: ObservableObject {
 
     /// Faster sampling and full process publishing while the window is open.
     var isVisible = false {
-        didSet { if isVisible != oldValue { reschedule() } }
+        didSet {
+            guard isVisible != oldValue else { return }
+            if !isVisible { snapshot.groups = [] }
+            reschedule()
+        }
     }
 
     private let queue = DispatchQueue(label: "nobeachballs.sampler", qos: .userInitiated)
@@ -119,7 +123,9 @@ final class Monitor: ObservableObject {
         let t = DispatchSource.makeTimerSource(queue: queue)
         t.schedule(deadline: .now(), repeating: interval, leeway: .milliseconds(100))
         let publishProcesses = isVisible
-        t.setEventHandler { [weak self] in self?.tick(publishProcesses: publishProcesses) }
+        t.setEventHandler { [weak self] in
+            autoreleasepool { self?.tick(publishProcesses: publishProcesses) }
+        }
         t.resume()
         timer = t
     }
@@ -158,7 +164,7 @@ final class Monitor: ObservableObject {
                 next.autoPaused = paused
                 next.deprioritized = deprioritized
                 next.unattributedCPU = unattributed
-                if publishProcesses { next.groups = visibleGroups }
+                next.groups = self.isVisible ? visibleGroups : []
                 self.push(&next.cpuHistory, system.cpuTotal)
                 self.push(&next.memHistory, 1 - Double(system.memAvailablePercent) / 100)
                 self.push(&next.swapHistory, system.swapInRate + system.swapOutRate)

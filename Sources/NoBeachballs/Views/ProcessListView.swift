@@ -12,34 +12,39 @@ enum SortKey: String, CaseIterable {
     case disk = "Disk"
 }
 
+/// Keep only inexpensive user choices alive while the dashboard is closed.
+final class ProcessListState: ObservableObject {
+    @Published var mode = ListMode.grouped
+    @Published var sort = SortKey.cpu
+    @Published var query = ""
+    @Published var showSystem = false
+    @Published var expanded = Set<String>()
+}
+
 struct ProcessListView: View {
     @ObservedObject var monitor: Monitor
-    @State private var mode = ListMode.grouped
-    @State private var sort = SortKey.cpu
-    @State private var query = ""
-    @State private var showSystem = false
-    @State private var expanded = Set<String>()
+    @ObservedObject var state: ProcessListState
 
     var body: some View {
         Panel(title: "proc", trailing: "\(monitor.groups.reduce(0) { $0 + $1.members.count }) processes") {
             HStack(spacing: 8) {
-                TextField("filter (name, command, pid)", text: $query)
+                TextField("filter (name, command, pid)", text: $state.query)
                     .textFieldStyle(.roundedBorder)
                     .font(Theme.mono(11))
                     .frame(width: 260)
-                Picker("", selection: $mode) {
+                Picker("", selection: $state.mode) {
                     ForEach(ListMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 .frame(width: 210)
-                Picker("", selection: $sort) {
+                Picker("", selection: $state.sort) {
                     ForEach(SortKey.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 .frame(width: 170)
-                Toggle("system", isOn: $showSystem).toggleStyle(.checkbox).font(Theme.mono(10))
+                Toggle("system", isOn: $state.showSystem).toggleStyle(.checkbox).font(Theme.mono(10))
                     .help("Show system and other users' processes. Their CPU/memory can't be read without root.")
                 Spacer()
             }
@@ -50,11 +55,11 @@ struct ProcessListView: View {
                     ForEach(rows) { group in
                         VStack(spacing: 0) {
                             ProcessRow(monitor: monitor, system: monitor.system, deprioritized: monitor.deprioritized, group: group, depth: 0,
-                                       expandable: mode == .grouped && group.members.count > 1,
-                                       isExpanded: expanded.contains(group.id)) {
-                                if expanded.contains(group.id) { expanded.remove(group.id) } else { expanded.insert(group.id) }
+                                       expandable: state.mode == .grouped && group.members.count > 1,
+                                       isExpanded: state.expanded.contains(group.id)) {
+                                if state.expanded.contains(group.id) { state.expanded.remove(group.id) } else { state.expanded.insert(group.id) }
                             }
-                            if mode == .grouped, group.members.count > 1, expanded.contains(group.id) {
+                            if state.mode == .grouped, group.members.count > 1, state.expanded.contains(group.id) {
                                 ForEach(group.members) { member in
                                     ProcessRow(monitor: monitor, system: monitor.system, deprioritized: monitor.deprioritized, group: single(member, in: group), depth: 1,
                                                expandable: false, isExpanded: false) {}
@@ -84,20 +89,20 @@ struct ProcessListView: View {
 
     private var rows: [ProcessGroup] {
         let source: [ProcessGroup]
-        switch mode {
+        switch state.mode {
         case .grouped: source = monitor.groups
         case .all: source = monitor.groups.flatMap { g in g.members.map { single($0, in: g) } }
         }
-        let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
+        let needle = state.query.trimmingCharacters(in: .whitespaces).lowercased()
         let filtered = source.filter { g in
-            guard showSystem || g.kind != .system else { return false }
+            guard state.showSystem || g.kind != .system else { return false }
             guard !needle.isEmpty else { return true }
             return g.name.lowercased().contains(needle) || g.members.contains { p in
                 p.name.lowercased().contains(needle) || p.command.lowercased().contains(needle) || "\(p.pid)" == needle
             }
         }
         let sorted: [ProcessGroup]
-        switch sort {
+        switch state.sort {
         case .cpu: sorted = filtered.sorted { ($0.cpu, $0.memory) > ($1.cpu, $1.memory) }
         case .memory: sorted = filtered.sorted { $0.memory > $1.memory }
         case .disk: sorted = filtered.sorted { ($0.diskRate, $0.cpu) > ($1.diskRate, $1.cpu) }

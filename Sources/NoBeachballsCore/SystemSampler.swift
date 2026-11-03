@@ -7,12 +7,18 @@ public final class SystemSampler {
     private var previousSwapIns: UInt64 = 0
     private var previousSwapOuts: UInt64 = 0
     private var previousTime: UInt64 = 0
+    // mach_host_self() acquires a send right on every call. Reuse one for the sampler's lifetime.
+    private let host = mach_host_self()
     private let pageSize: UInt64
     private let memTotal: UInt64
 
     public init() {
         pageSize = UInt64(Self.sysctlInt("hw.pagesize") ?? 16384)
         memTotal = UInt64(Self.sysctlInt("hw.memsize") ?? 0)
+    }
+
+    deinit {
+        mach_port_deallocate(mach_task_self_, host)
     }
 
     public func sample() -> SystemSample {
@@ -30,7 +36,7 @@ public final class SystemSampler {
         var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64>.size / MemoryLayout<integer_t>.size)
         _ = withUnsafeMutablePointer(to: &vm) {
             $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
-                host_statistics64(mach_host_self(), HOST_VM_INFO64, $0, &count)
+                host_statistics64(host, HOST_VM_INFO64, $0, &count)
             }
         }
         let app = UInt64(vm.internal_page_count &- vm.purgeable_count) * pageSize
@@ -78,7 +84,7 @@ public final class SystemSampler {
         var cpuCount: natural_t = 0
         var info: processor_info_array_t?
         var infoCount: mach_msg_type_number_t = 0
-        guard host_processor_info(mach_host_self(), PROCESSOR_CPU_LOAD_INFO, &cpuCount, &info, &infoCount) == KERN_SUCCESS,
+        guard host_processor_info(host, PROCESSOR_CPU_LOAD_INFO, &cpuCount, &info, &infoCount) == KERN_SUCCESS,
               let info else { return [] }
         defer {
             vm_deallocate(mach_task_self_, vm_address_t(bitPattern: info), vm_size_t(Int(infoCount) * MemoryLayout<integer_t>.stride))

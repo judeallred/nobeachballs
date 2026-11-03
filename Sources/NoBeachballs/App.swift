@@ -101,6 +101,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuDelegate {
     private let monitor: Monitor
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
+    private let listState = ProcessListState()
     private var cancellables: Set<AnyCancellable> = []
     private var lastIconKey: String?
 
@@ -111,7 +112,6 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuDelegate {
         popover.behavior = .transient
         popover.animates = false
         popover.delegate = self
-        popover.contentViewController = NSHostingController(rootView: MonitorView(monitor: monitor))
         popover.contentSize = NSSize(width: 940, height: 760)
 
         if let button = item.button {
@@ -263,15 +263,29 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuDelegate {
         if popover.isShown {
             popover.performClose(nil)
         } else {
-            monitor.isVisible = true
+            prepareDashboard()
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()
             NSApp.activate()
         }
     }
 
-    func popoverDidClose(_ notification: Notification) {
+    var dashboardController: NSViewController? { popover.contentViewController }
+
+    func prepareDashboard() {
+        popover.contentViewController = NSHostingController(
+            rootView: MonitorView(monitor: monitor, listState: listState))
+        monitor.isVisible = true
+    }
+
+    func discardDashboard() {
         monitor.isVisible = false
+        // A hidden hosting controller still observes and lays out the dashboard on every tick.
+        popover.contentViewController = nil
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        discardDashboard()
     }
 
     private func showMenu() {
